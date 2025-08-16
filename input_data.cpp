@@ -116,6 +116,30 @@ torch::Tensor Camera::getImage(int downscaleFactor){
     }
 }
 
+torch::Tensor Camera::getMask(int downscaleFactor){
+    torch::Tensor baseMask;
+    if (mask.numel()){
+        baseMask = mask;
+    }else if (image.numel()){
+        baseMask = torch::ones({image.size(0), image.size(1)}, image.options().dtype(torch::kFloat32));
+    }else{
+        baseMask = torch::ones({height, width}, torch::TensorOptions().dtype(torch::kFloat32));
+    }
+
+    if (downscaleFactor <= 1) return baseMask;
+
+    if (maskPyramids.find(downscaleFactor) != maskPyramids.end()){
+        return maskPyramids[downscaleFactor];
+    }
+
+    auto opts = torch::nn::functional::InterpolateFuncOptions()
+                    .size(std::vector<long long>{baseMask.size(0) / downscaleFactor, baseMask.size(1) / downscaleFactor})
+                    .mode(torch::kNearest);
+    torch::Tensor resized = torch::nn::functional::interpolate(baseMask.unsqueeze(0).unsqueeze(0), opts).squeeze();
+    maskPyramids[downscaleFactor] = resized;
+    return resized;
+}
+
 bool Camera::hasDistortionParameters(){
     return k1 != 0.0f || k2 != 0.0f || k3 != 0.0f || p1 != 0.0f || p2 != 0.0f;
 }

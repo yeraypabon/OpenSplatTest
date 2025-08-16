@@ -150,8 +150,9 @@ int main(int argc, char *argv[]){
             torch::Tensor rgb = model.forward(cam, step);
             torch::Tensor gt = cam.getImage(model.getDownscaleFactor(step));
             gt = gt.to(device);
+            torch::Tensor mask = cam.getMask(model.getDownscaleFactor(step)).to(device);
 
-            torch::Tensor mainLoss = model.mainLoss(rgb, gt, ssimWeight);
+            torch::Tensor mainLoss = model.mainLoss(rgb, gt, ssimWeight, mask);
             mainLoss.backward();
             
             if (step % displayStep == 0) {
@@ -193,7 +194,8 @@ int main(int argc, char *argv[]){
         if (valCam != nullptr){
             torch::Tensor rgb = model.forward(*valCam, numIters);
             torch::Tensor gt = valCam->getImage(model.getDownscaleFactor(numIters)).to(device);
-            std::cout << valCam->filePath << " validation loss: " << model.mainLoss(rgb, gt, ssimWeight).item<float>() << std::endl; 
+            torch::Tensor mask = valCam->getMask(model.getDownscaleFactor(numIters)).to(device);
+            std::cout << valCam->filePath << " validation loss: " << model.mainLoss(rgb, gt, ssimWeight, mask).item<float>() << std::endl;
         }
     }catch(const std::exception &e){
         std::cerr << e.what() << std::endl;
