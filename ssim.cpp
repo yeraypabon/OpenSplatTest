@@ -5,7 +5,7 @@
 
 using namespace torch::indexing;
 
-torch::Tensor SSIM::eval(const torch::Tensor& rendered, const torch::Tensor& gt) {
+torch::Tensor SSIM::eval(const torch::Tensor& rendered, const torch::Tensor& gt, const torch::Tensor& mask) {
     torch::Tensor img1 = gt.permute({2, 0, 1}).index({None, "..."});
     torch::Tensor img2 = rendered.permute({2, 0, 1}).index({None, "..."});
     
@@ -28,7 +28,9 @@ torch::Tensor SSIM::eval(const torch::Tensor& rendered, const torch::Tensor& gt)
 
     torch::Tensor ssimMap = ((2.0f * mu1mu2 + C1) * (2.0f * sigma12 + C2)) / ((mu1Sq + mu2Sq + C1) * (sigma1Sq + sigma2Sq + C2));
 
-    return ssimMap.mean();
+    torch::Tensor weight = mask.view({1, 1, mask.size(0), mask.size(1)});
+    torch::Tensor denom = weight.sum() * channel;
+    return (ssimMap * weight).sum() / (denom + 1e-8);
 }
 
 torch::Tensor SSIM::createWindow(){
