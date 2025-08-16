@@ -112,10 +112,18 @@ InputData inputDataFromColmap(const std::string &projectRoot, const std::string&
             filePath += ch;
         }
 
+        fs::path imageDir;
         if (colmapImageSourcePath.empty())
-            cam.filePath = (fs::path(projectRoot) / "images" / filePath).string();
+            imageDir = fs::path(projectRoot) / "images";
         else
-            cam.filePath = (fs::path(colmapImageSourcePath) / filePath).string();
+            imageDir = fs::path(colmapImageSourcePath);
+
+        cam.filePath = (imageDir / filePath).string();
+
+        fs::path maskDir = imageDir.parent_path() / "masks";
+        fs::path mPath = maskDir / filePath;
+        if (fs::exists(mPath))
+            cam.maskPath = mPath.string();
 
         unorientedPoses[i].index_put_({Slice(None, 3), Slice(None, 3)}, Rinv);
         unorientedPoses[i].index_put_({Slice(None, 3), Slice(3, 4)}, Tinv);

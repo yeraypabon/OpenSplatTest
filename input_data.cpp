@@ -45,6 +45,10 @@ void Camera::loadImage(float downscaleFactor){
     std::cout << "Loading " << filePath << std::endl;
 
     cv::Mat cImg = imreadRGB(filePath);
+    cv::Mat cMask;
+    if (!maskPath.empty() && fs::exists(maskPath)){
+        cMask = cv::imread(maskPath, cv::IMREAD_GRAYSCALE);
+    }
     
     float rescaleF = 1.0f;
     // If camera intrinsics don't match the image dimensions 
@@ -55,6 +59,9 @@ void Camera::loadImage(float downscaleFactor){
     fy *= rescaleF;
     cx *= rescaleF;
     cy *= rescaleF;
+    if (!cMask.empty()){
+        cv::resize(cMask, cMask, cv::Size(), rescaleF, rescaleF, cv::INTER_NEAREST);
+    }
 
     if (downscaleFactor > 1.0f){
         float scaleFactor = 1.0f / downscaleFactor;
@@ -63,6 +70,9 @@ void Camera::loadImage(float downscaleFactor){
         fy *= scaleFactor;
         cx *= scaleFactor;
         cy *= scaleFactor;
+        if (!cMask.empty()){
+            cv::resize(cMask, cMask, cv::Size(), scaleFactor, scaleFactor, cv::INTER_NEAREST);
+        }
     }
 
     K = getIntrinsicsMatrix();
@@ -76,7 +86,13 @@ void Camera::loadImage(float downscaleFactor){
 
         cv::Mat undistorted = cv::Mat::zeros(cImg.rows, cImg.cols, cImg.type());
         cv::undistort(cImg, undistorted, cK, distCoeffs, newK);
-        
+
+        if (!cMask.empty()){
+            cv::Mat undistortedMask = cv::Mat::zeros(cMask.rows, cMask.cols, cMask.type());
+            cv::undistort(cMask, undistortedMask, cK, distCoeffs, newK);
+            cMask = undistortedMask;
+        }
+
         image = imageToTensor(undistorted);
         K = floatNxNMatToTensor(newK);
     }else{
@@ -86,6 +102,10 @@ void Camera::loadImage(float downscaleFactor){
 
     // Crop to ROI
     image = image.index({Slice(roi.y, roi.y + roi.height), Slice(roi.x, roi.x + roi.width), Slice()});
+    if (!cMask.empty()){
+        cMask = cMask(roi);
+        mask = torch::from_blob(cMask.data, {cMask.rows, cMask.cols}, torch::kU8).clone().to(torch::kFloat32) / 255.0f;
+    }
 
     // Update parameters
     height = image.size(0);
@@ -114,6 +134,30 @@ torch::Tensor Camera::getImage(int downscaleFactor){
         imagePyramids[downscaleFactor] = t;
         return t;
     }
+}
+
+torch::Tensor Camera::getMask(int downscaleFactor){
+    torch::Tensor baseMask;
+    if (mask.numel()){
+        baseMask = mask;
+    }else if (image.numel()){
+        baseMask = torch::ones({image.size(0), image.size(1)}, image.options().dtype(torch::kFloat32));
+    }else{
+        baseMask = torch::ones({height, width}, torch::TensorOptions().dtype(torch::kFloat32));
+    }
+
+    if (downscaleFactor <= 1) return baseMask;
+
+    if (maskPyramids.find(downscaleFactor) != maskPyramids.end()){
+        return maskPyramids[downscaleFactor];
+    }
+
+    auto opts = torch::nn::functional::InterpolateFuncOptions()
+                    .size(std::vector<long long>{baseMask.size(0) / downscaleFactor, baseMask.size(1) / downscaleFactor})
+                    .mode(torch::kNearest);
+    torch::Tensor resized = torch::nn::functional::interpolate(baseMask.unsqueeze(0).unsqueeze(0), opts).squeeze();
+    maskPyramids[downscaleFactor] = resized;
+    return resized;
 }
 
 bool Camera::hasDistortionParameters(){
